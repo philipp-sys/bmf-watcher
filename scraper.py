@@ -8,6 +8,7 @@ from email.message import EmailMessage
 URL = "https://www.bundesfinanzministerium.de/Web/DE/Presse/Pressemitteilungen/pressemitteilungen.html"
 BASE_URL = "https://www.bundesfinanzministerium.de"
 STATUS_FILE = "last_news.txt"
+RECIPIENTS_FILE = "recipients.txt"
 
 def run():
     print(f"🔍 Starte Scan der BMF-Liste...")
@@ -43,18 +44,12 @@ def run():
             date_tag = entry.find('time')
             date_text = date_tag.get_text(strip=True) if date_tag else "K.A."
             
-            # Wir speichern die Daten strukturiert für das HTML-Layout
-            parsed_entries.append({
-                'date': date_text,
-                'title': title,
-                'link': link
-            })
+            parsed_entries.append({'date': date_text, 'title': title, 'link': link})
 
     if not parsed_entries:
         print("❌ Keine Einträge gefunden.")
         return
 
-    # Snapshot für den Vergleich (als Textblock)
     current_snapshot = "\n".join([f"{e['date']}: {e['title']}" for e in parsed_entries])
 
     last_snapshot = ""
@@ -79,17 +74,24 @@ def send_html_mail(entries):
     sender = os.environ.get('SENDER_MAIL')
     password = os.environ.get('EMAIL_PASSWORD')
     
-    # --- EMPFÄNGER-LISTE ---
-    recipients = ["philipp@langeweile.io", "philipp.lange.seo@gmail.com"]
+    # --- EMPFÄNGER AUS DATEI EINLESEN ---
+    recipients = []
+    if os.path.exists(RECIPIENTS_FILE):
+        with open(RECIPIENTS_FILE, "r", encoding="utf-8") as f:
+            # Liest Zeile für Zeile, entfernt Leerzeichen und ignoriert leere Zeilen
+            recipients = [line.strip() for line in f if line.strip()]
+    
+    if not recipients:
+        print("⚠️ Keine Empfänger in recipients.txt gefunden!")
+        return
     
     msg = EmailMessage()
     msg['Subject'] = "🔔 Update: Neue BMF Pressemitteilungen"
     msg['From'] = f"Finanz-Monitor <{sender}>"
     msg['To'] = ", ".join(recipients)
 
-    # HTML-Zeilen für die Einträge bauen
     rows_html = ""
-    for e in entries[:5]: # Die Top 5 News
+    for e in entries[:5]:
         rows_html += f"""
         <div style="margin-bottom: 20px; padding: 15px; border-left: 4px solid #00528e; background-color: #fcfcfc; border-bottom: 1px solid #eee;">
             <span style="color: #888; font-size: 12px; font-weight: bold; text-transform: uppercase;">{e['date']}</span><br>
@@ -100,28 +102,25 @@ def send_html_mail(entries):
 
     html_layout = f"""
     <html>
-        <body style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background-color: #f4f4f4; padding: 20px;">
+        <body style="font-family: Arial, sans-serif; background-color: #f4f4f4; padding: 20px;">
             <div style="max-width: 600px; margin: auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
                 <div style="text-align: center; margin-bottom: 30px; border-bottom: 3px solid #00528e; padding-bottom: 20px;">
                     <h1 style="color: #00528e; margin: 0; font-size: 24px;">BMF Monitor</h1>
                     <p style="color: #666; margin: 5px 0;">Aktuelle Veröffentlichungen im Überblick</p>
                 </div>
-                
                 <p>Guten Tag,</p>
                 <p>das Bundesfinanzministerium hat neue Informationen veröffentlicht oder bestehende Einträge aktualisiert:</p>
-                
                 {rows_html}
-                
                 <div style="margin-top: 30px; text-align: center; font-size: 12px; color: #999;">
                     <p>Dieser Service wird automatisch betrieben.<br>
-                    <a href="{URL}" style="color: #00528e; text-decoration: underline;">Direkt zur BMF-Website</a></p>
+                    <a href="{URL}" style="color: #00528e;">Direkt zur BMF-Website</a></p>
                 </div>
             </div>
         </body>
     </html>
     """
 
-    msg.set_content("Neue Updates vom BMF sind verfügbar. Bitte nutzen Sie einen HTML-fähigen E-Mail-Client.")
+    msg.set_content("Updates vom BMF verfügbar. Nutzen Sie HTML-Mail.")
     msg.add_alternative(html_layout, subtype='html')
 
     try:
