@@ -1,17 +1,17 @@
 name: BMF Watcher
 on:
   schedule:
-    - cron: '0 * * * *' # Läuft jede volle Stunde
-  workflow_dispatch: # Erlaubt manuelles Starten
+    - cron: '0 * * * *' # Läuft jede Stunde
+  workflow_dispatch: # Erlaubt manuelles Starten zum Testen
 
 jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: write # WICHTIG: Erlaubt dem Bot, die last_news.txt zu speichern
     steps:
       - uses: actions/checkout@v4
-      - name: Setup Python
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
@@ -19,6 +19,7 @@ jobs:
         run: pip install -r requirements.txt
       - name: Run Scraper
         env:
+          # HIER WERDEN DIE SECRETS AN DAS SKRIPT ÜBERGEBEN
           EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
           SENDER_MAIL: ${{ secrets.SENDER_MAIL }}
         run: python scraper.py
@@ -27,5 +28,5 @@ jobs:
           git config --global user.name "BMF Bot"
           git config --global user.email "bot@github.com"
           git add last_news.txt || exit 0
-          git commit -m "Update snapshot" || exit 0
+          git commit -m "Update last news snapshot" || exit 0
           git push
