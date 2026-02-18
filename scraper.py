@@ -4,12 +4,13 @@ import smtplib
 import os
 from email.message import EmailMessage
 
+# --- EINSTELLUNGEN ---
 URL = "https://www.bundesfinanzministerium.de/Web/DE/Presse/Pressemitteilungen/pressemitteilungen.html"
 BASE_URL = "https://www.bundesfinanzministerium.de"
 STATUS_FILE = "last_news.txt"
 
 def run():
-    print(f"🔍 Scanne BMF-Ergebnisliste auf: {URL}")
+    print(f"🔍 Starte Scan der BMF-Liste...")
     
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
@@ -23,80 +24,111 @@ def run():
         return
 
     soup = BeautifulSoup(res.text, 'html.parser')
-    
-    # Wir suchen gezielt die Liste mit der ID 'searchResult'
     result_list = soup.find('ol', id='searchResult')
     
     if not result_list:
-        print("❌ Die Liste 'searchResult' wurde nicht gefunden. Struktur hat sich eventuell geändert.")
+        print("❌ Liste 'searchResult' nicht gefunden.")
         return
 
-    # Wir extrahieren alle Einträge (li) innerhalb dieser Liste
     entries = result_list.find_all('li', class_='bmf-list-entry')
-    
     parsed_entries = []
+    
     for entry in entries:
-        # Den Link und Titel aus dem h3-Tag extrahieren
         title_link = entry.find('h3', class_='bmf-entry-title').find('a')
         if title_link:
             title = title_link.get_text(strip=True)
             link = title_link.get('href', '')
-            # Link vervollständigen falls nötig
             if link.startswith('/'): link = BASE_URL + link
             
-            # Datum finden (aus dem <time> Tag)
             date_tag = entry.find('time')
-            date_text = date_tag.get_text(strip=True) if date_tag else "Unbekanntes Datum"
+            date_text = date_tag.get_text(strip=True) if date_tag else "K.A."
             
-            parsed_entries.append(f"{date_text}: {title} ({link})")
+            # Wir speichern die Daten strukturiert für das HTML-Layout
+            parsed_entries.append({
+                'date': date_text,
+                'title': title,
+                'link': link
+            })
 
     if not parsed_entries:
-        print("❌ Keine Pressemitteilungen in der Liste gefunden.")
+        print("❌ Keine Einträge gefunden.")
         return
 
-    # Snapshot erstellen: Alle Zeilen zu einem Block zusammenfügen
-    current_snapshot = "\n".join(parsed_entries)
+    # Snapshot für den Vergleich (als Textblock)
+    current_snapshot = "\n".join([f"{e['date']}: {e['title']}" for e in parsed_entries])
 
-    # Alten Stand lesen
     last_snapshot = ""
     if os.path.exists(STATUS_FILE):
         with open(STATUS_FILE, "r", encoding="utf-8") as f:
             last_snapshot = f.read().strip()
 
-    # Vergleich
     if current_snapshot != last_snapshot:
-        print("🔔 ÄNDERUNG DETEKTIERT!")
+        print("🔔 Änderung erkannt!")
         
-        # Mail nur senden, wenn wir einen Vergleichswert haben (verhindert Mail beim ersten Setup)
         if last_snapshot != "":
-            # Vorschau der obersten 3 Meldungen für die Mail
-            preview = "\n\n".join(parsed_entries[:3])
-            send_mail(preview)
+            send_html_mail(parsed_entries)
         else:
-            print("Initialer Lauf: Snapshot gespeichert. Ab jetzt wird bei jeder Änderung alarmiert.")
+            print("Initial-Lauf: Snapshot gespeichert.")
         
-        # Neuen Stand speichern
         with open(STATUS_FILE, "w", encoding="utf-8") as f:
             f.write(current_snapshot)
     else:
-        print("☕ Liste ist unverändert.")
+        print("☕ Keine Änderungen.")
 
-def send_mail(content):
+def send_html_mail(entries):
     sender = os.environ.get('SENDER_MAIL')
     password = os.environ.get('EMAIL_PASSWORD')
-    recipient = "philipp@langeweile.io"
-
+    
+    # --- EMPFÄNGER-LISTE ---
+    recipients = ["philipp@langeweile.io", "kunde@beispiel.de"]
+    
     msg = EmailMessage()
-    msg.set_content(f"Hallo Philipp,\n\nes gibt eine Änderung in der Liste der BMF-Pressemitteilungen!\n\nAktuelle Top-Meldungen:\n\n{content}\n\nAlle Meldungen findest du hier: {URL}")
-    msg['Subject'] = "🚨 BMF-Monitor: Änderung in der Ergebnisliste"
-    msg['From'] = sender
-    msg['To'] = recipient
+    msg['Subject'] = "🔔 Update: Neue BMF Pressemitteilungen"
+    msg['From'] = f"Finanz-Monitor <{sender}>"
+    msg['To'] = ", ".join(recipients)
+
+    # HTML-Zeilen für die Einträge bauen
+    rows_html = ""
+    for e in entries[:5]: # Die Top 5 News
+        rows_html += f"""
+        <div style="margin-bottom: 20px; padding: 15px; border-left: 4px solid #00528e; background-color: #fcfcfc; border-bottom: 1px solid #eee;">
+            <span style="color: #888; font-size: 12px; font-weight: bold; text-transform: uppercase;">{e['date']}</span><br>
+            <h3 style="margin: 8px 0; color: #333; font-family: Arial, sans-serif; font-size: 18px;">{e['title']}</h3>
+            <a href="{e['link']}" style="display: inline-block; margin-top: 10px; padding: 10px 18px; background-color: #00528e; color: white; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 14px;">Meldung lesen →</a>
+        </div>
+        """
+
+    html_layout = f"""
+    <html>
+        <body style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background-color: #f4f4f4; padding: 20px;">
+            <div style="max-width: 600px; margin: auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+                <div style="text-align: center; margin-bottom: 30px; border-bottom: 3px solid #00528e; padding-bottom: 20px;">
+                    <h1 style="color: #00528e; margin: 0; font-size: 24px;">BMF Monitor</h1>
+                    <p style="color: #666; margin: 5px 0;">Aktuelle Veröffentlichungen im Überblick</p>
+                </div>
+                
+                <p>Guten Tag,</p>
+                <p>das Bundesfinanzministerium hat neue Informationen veröffentlicht oder bestehende Einträge aktualisiert:</p>
+                
+                {rows_html}
+                
+                <div style="margin-top: 30px; text-align: center; font-size: 12px; color: #999;">
+                    <p>Dieser Service wird automatisch betrieben.<br>
+                    <a href="{URL}" style="color: #00528e; text-decoration: underline;">Direkt zur BMF-Website</a></p>
+                </div>
+            </div>
+        </body>
+    </html>
+    """
+
+    msg.set_content("Neue Updates vom BMF sind verfügbar. Bitte nutzen Sie einen HTML-fähigen E-Mail-Client.")
+    msg.add_alternative(html_layout, subtype='html')
 
     try:
         with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
             smtp.login(sender, password)
             smtp.send_message(msg)
-        print("📧 Benachrichtigungs-Mail erfolgreich versendet.")
+        print(f"📧 Mail an {len(recipients)} Empfänger gesendet.")
     except Exception as e:
         print(f"❌ Mail-Fehler: {e}")
 
