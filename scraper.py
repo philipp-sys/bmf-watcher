@@ -80,7 +80,7 @@ def send_html_mail(entries):
     password = os.environ.get('EMAIL_PASSWORD')
     
     # --- EMPFÄNGER-LISTE ---
-    recipients = ["philipp@langeweile.io", "kunde@beispiel.de"]
+    recipients = ["philipp@langeweile.io", "philipp.lange.seo@gmail.com"]
     
     msg = EmailMessage()
     msg['Subject'] = "🔔 Update: Neue BMF Pressemitteilungen"
