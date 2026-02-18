@@ -11,125 +11,88 @@ STATUS_FILE = "last_news.txt"
 RECIPIENTS_FILE = "recipients.txt"
 
 def run():
-    print(f"🔍 Starte Scan der BMF-Liste...")
+    print("--- 🚀 DEBUG START ---")
     
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-    }
-    
+    # 1. Secrets prüfen (nur ob sie da sind)
+    sender = os.environ.get('SENDER_MAIL')
+    password = os.environ.get('EMAIL_PASSWORD')
+    print(f"DEBUG: SENDER_MAIL vorhanden: {'Ja' if sender else 'NEIN ❌'}")
+    print(f"DEBUG: EMAIL_PASSWORD vorhanden: {'Ja' if password else 'NEIN ❌'}")
+
+    # 2. Empfänger prüfen
+    recipients = []
+    if os.path.exists(RECIPIENTS_FILE):
+        with open(RECIPIENTS_FILE, "r", encoding="utf-8") as f:
+            recipients = [line.strip() for line in f if line.strip()]
+    print(f"DEBUG: Empfänger gefunden: {recipients}")
+
+    # 3. Seite laden
+    headers = {'User-Agent': 'Mozilla/5.0'}
     try:
         res = requests.get(URL, headers=headers, timeout=15)
-        res.raise_for_status()
+        soup = BeautifulSoup(res.text, 'html.parser')
+        result_list = soup.find('ol', id='searchResult')
+        entries = result_list.find_all('li', class_='bmf-list-entry') if result_list else []
+        print(f"DEBUG: Einträge auf Webseite gefunden: {len(entries)}")
     except Exception as e:
-        print(f"❌ Fehler beim Laden der Seite: {e}")
+        print(f"DEBUG: Fehler beim Scrapen: {e}")
         return
 
-    soup = BeautifulSoup(res.text, 'html.parser')
-    result_list = soup.find('ol', id='searchResult')
-    
-    if not result_list:
-        print("❌ Liste 'searchResult' nicht gefunden.")
-        return
-
-    entries = result_list.find_all('li', class_='bmf-list-entry')
+    # Strukturieren
     parsed_entries = []
-    
     for entry in entries:
         title_link = entry.find('h3', class_='bmf-entry-title').find('a')
         if title_link:
-            title = title_link.get_text(strip=True)
-            link = title_link.get('href', '')
-            if link.startswith('/'): link = BASE_URL + link
-            
-            date_tag = entry.find('time')
-            date_text = date_tag.get_text(strip=True) if date_tag else "K.A."
-            
-            parsed_entries.append({'date': date_text, 'title': title, 'link': link})
+            parsed_entries.append({
+                'date': entry.find('time').get_text(strip=True) if entry.find('time') else "K.A.",
+                'title': title_link.get_text(strip=True),
+                'link': (BASE_URL + title_link.get('href')) if title_link.get('href').startswith('/') else title_link.get('href')
+            })
 
-    if not parsed_entries:
-        print("❌ Keine Einträge gefunden.")
-        return
-
+    # 4. Vergleichs-Snapshot
     current_snapshot = "\n".join([f"{e['date']}: {e['title']}" for e in parsed_entries])
-
+    
     last_snapshot = ""
     if os.path.exists(STATUS_FILE):
         with open(STATUS_FILE, "r", encoding="utf-8") as f:
             last_snapshot = f.read().strip()
+    
+    print(f"DEBUG: Länge alter Snapshot: {len(last_snapshot)} Zeichen")
+    print(f"DEBUG: Länge neuer Snapshot: {len(current_snapshot)} Zeichen")
 
+    # 5. Die Logik-Entscheidung
     if current_snapshot != last_snapshot:
-        print("🔔 Änderung erkannt!")
-        
+        print("DEBUG: 🔔 UNTERSCHIED ERKANNT!")
         if last_snapshot != "":
-            send_html_mail(parsed_entries)
+            print("DEBUG: Starte E-Mail Versand...")
+            send_html_mail(parsed_entries, recipients, sender, password)
         else:
-            print("Initial-Lauf: Snapshot gespeichert.")
+            print("DEBUG: Erster Lauf (last_snapshot war leer). Speichere nur.")
         
         with open(STATUS_FILE, "w", encoding="utf-8") as f:
             f.write(current_snapshot)
     else:
-        print("☕ Keine Änderungen.")
+        print("DEBUG: ☕ Keine Änderungen zum letzten Snapshot.")
+    
+    print("--- 🏁 DEBUG ENDE ---")
 
-def send_html_mail(entries):
-    sender = os.environ.get('SENDER_MAIL')
-    password = os.environ.get('EMAIL_PASSWORD')
-    
-    # --- EMPFÄNGER AUS DATEI EINLESEN ---
-    recipients = []
-    if os.path.exists(RECIPIENTS_FILE):
-        with open(RECIPIENTS_FILE, "r", encoding="utf-8") as f:
-            # Liest Zeile für Zeile, entfernt Leerzeichen und ignoriert leere Zeilen
-            recipients = [line.strip() for line in f if line.strip()]
-    
-    if not recipients:
-        print("⚠️ Keine Empfänger in recipients.txt gefunden!")
-        return
-    
+def send_html_mail(entries, recipients, sender, password):
     msg = EmailMessage()
-    msg['Subject'] = "🔔 Update: Neue BMF Pressemitteilungen"
+    msg['Subject'] = "🔔 BMF Update - Neue Pressemitteilung"
     msg['From'] = f"Finanz-Monitor <{sender}>"
     msg['To'] = ", ".join(recipients)
 
-    rows_html = ""
-    for e in entries[:5]:
-        rows_html += f"""
-        <div style="margin-bottom: 20px; padding: 15px; border-left: 4px solid #00528e; background-color: #fcfcfc; border-bottom: 1px solid #eee;">
-            <span style="color: #888; font-size: 12px; font-weight: bold; text-transform: uppercase;">{e['date']}</span><br>
-            <h3 style="margin: 8px 0; color: #333; font-family: Arial, sans-serif; font-size: 18px;">{e['title']}</h3>
-            <a href="{e['link']}" style="display: inline-block; margin-top: 10px; padding: 10px 18px; background-color: #00528e; color: white; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 14px;">Meldung lesen →</a>
-        </div>
-        """
-
-    html_layout = f"""
-    <html>
-        <body style="font-family: Arial, sans-serif; background-color: #f4f4f4; padding: 20px;">
-            <div style="max-width: 600px; margin: auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
-                <div style="text-align: center; margin-bottom: 30px; border-bottom: 3px solid #00528e; padding-bottom: 20px;">
-                    <h1 style="color: #00528e; margin: 0; font-size: 24px;">BMF Monitor</h1>
-                    <p style="color: #666; margin: 5px 0;">Aktuelle Veröffentlichungen im Überblick</p>
-                </div>
-                <p>Guten Tag,</p>
-                <p>das Bundesfinanzministerium hat neue Informationen veröffentlicht oder bestehende Einträge aktualisiert:</p>
-                {rows_html}
-                <div style="margin-top: 30px; text-align: center; font-size: 12px; color: #999;">
-                    <p>Dieser Service wird automatisch betrieben.<br>
-                    <a href="{URL}" style="color: #00528e;">Direkt zur BMF-Website</a></p>
-                </div>
-            </div>
-        </body>
-    </html>
-    """
-
-    msg.set_content("Updates vom BMF verfügbar. Nutzen Sie HTML-Mail.")
+    rows_html = "".join([f"<p><b>{e['date']}</b>: {e['title']}<br><a href='{e['link']}'>Link</a></p><hr>" for e in entries[:5]])
+    html_layout = f"<html><body><h2>BMF Updates</h2>{rows_html}</body></html>"
     msg.add_alternative(html_layout, subtype='html')
 
     try:
         with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
             smtp.login(sender, password)
             smtp.send_message(msg)
-        print(f"📧 Mail an {len(recipients)} Empfänger gesendet.")
+        print("DEBUG: ✅ E-Mail wurde erfolgreich abgeschickt!")
     except Exception as e:
-        print(f"❌ Mail-Fehler: {e}")
+        print(f"DEBUG: ❌ SMTP FEHLER: {e}")
 
 if __name__ == "__main__":
     run()
