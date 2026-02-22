@@ -1,32 +1,44 @@
-name: BMF Watcher
+name: Wettbewerbs-Monitor
+
 on:
   schedule:
-    - cron: '0 * * * *' # Läuft jede Stunde
-  workflow_dispatch: # Erlaubt manuelles Starten zum Testen
+    - cron: '0 * * * *' # Läuft jede volle Stunde
+  workflow_dispatch: # Erlaubt manuelles Starten
 
 jobs:
-  build:
+  run-monitors:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # WICHTIG: Erlaubt dem Bot, die last_news.txt zu speichern
+      contents: write
     steps:
-      - uses: actions/checkout@v4
-      - name: Set up Python
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-      - name: Run Scraper
-        env:
-          # HIER WERDEN DIE SECRETS AN DAS SKRIPT ÜBERGEBEN
-          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
-          SENDER_MAIL: ${{ secrets.SENDER_MAIL }}
-        run: python scraper.py
-      - name: Save Snapshot
+
+      - name: Install Dependencies
         run: |
-          git config --global user.name "BMF Bot"
-          git config --global user.email "bot@github.com"
-          git add last_news.txt || exit 0
-          git commit -m "Update last news snapshot" || exit 0
+          pip install requests beautifulsoup4 lxml
+
+      - name: Run MDM Scraper
+        env:
+          SENDER_MAIL: ${{ secrets.SENDER_MAIL }}
+          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+        run: python scraper.py
+
+      - name: Run BMF Monitor
+        env:
+          SENDER_MAIL: ${{ secrets.SENDER_MAIL }}
+          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+        run: python bmf_monitor.py
+
+      - name: Sync Database
+        run: |
+          git config --global user.name "GitHub Action Bot"
+          git config --global user.email "action@github.com"
+          git add inventory.json bmf_history.json
+          git commit -m "Update DB: $(date)" || echo "No changes to commit"
           git push
