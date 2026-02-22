@@ -1,12 +1,12 @@
-name: Wettbewerbs-Monitor
+name: BMF News Monitor
 
 on:
   schedule:
-    - cron: '0 * * * *' # Läuft jede volle Stunde
-  workflow_dispatch: # Erlaubt manuelles Starten
+    - cron: '0 * * * *' # Stündlich
+  workflow_dispatch: # Erlaubt manuellen Start
 
 jobs:
-  run-monitors:
+  build:
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -14,31 +14,24 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Setup Python
+      - name: Python Setup
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      - name: Install Dependencies
-        run: |
-          pip install requests beautifulsoup4 lxml
+      - name: Dependencies
+        run: pip install requests beautifulsoup4
 
-      - name: Run MDM Scraper
-        env:
-          SENDER_MAIL: ${{ secrets.SENDER_MAIL }}
-          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
-        run: python scraper.py
-
-      - name: Run BMF Monitor
+      - name: Run Monitor
         env:
           SENDER_MAIL: ${{ secrets.SENDER_MAIL }}
           EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
         run: python bmf_monitor.py
 
-      - name: Sync Database
+      - name: Commit History
         run: |
-          git config --global user.name "GitHub Action Bot"
-          git config --global user.email "action@github.com"
-          git add inventory.json bmf_history.json
-          git commit -m "Update DB: $(date)" || echo "No changes to commit"
+          git config --global user.name "BMF-Bot"
+          git config --global user.email "bot@bmf.de"
+          git add bmf_history.json
+          git commit -m "Update history" || echo "No changes"
           git push
